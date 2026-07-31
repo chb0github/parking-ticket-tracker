@@ -23,6 +23,19 @@ import os
 import sys
 import traceback
 
+# Re-exec under the repo's own venv if we were launched with a different
+# interpreter (e.g. `./track.py` picks up /usr/bin/python3 via env, which lacks
+# the OCR deps). Keeps `./track.py` working standalone on any host without
+# hardcoding an absolute venv path in the shebang.
+_VENV_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python3")
+if (
+    os.path.exists(_VENV_PY)
+    and os.path.realpath(sys.executable) != os.path.realpath(_VENV_PY)
+    and not os.environ.get("_PTT_REEXEC")
+):
+    os.environ["_PTT_REEXEC"] = "1"
+    os.execv(_VENV_PY, [_VENV_PY, os.path.abspath(__file__), *sys.argv[1:]])
+
 import seattle
 import pdfparse
 import state as statemod
