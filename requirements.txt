@@ -1,0 +1,6 @@
+# PDF is a scanned image (fine + location live only in the ticket image on
+# page 1), so we rasterize with pypdfium2 and OCR with pytesseract.
+# pytesseract requires the `tesseract` binary on the host (apt: tesseract-ocr).
+pypdfium2>=4
+pytesseract>=0.3.10
+Pillow>=10

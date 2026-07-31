@@ -1,0 +1,10 @@
+.venv/
+get-pip.py
+__pycache__/
+*.pyc
+state/
+*.json
+!plates.example
+*.pdf
+*.log
+.DS_Store

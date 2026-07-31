@@ -1,0 +1,11 @@
+# Example plate list (for documentation only).
+#
+# On snowball, plates are passed as CLI args in the crontab line, e.g.:
+#   track.py --plate BYP5855 --email-to christian.bongiorno@gmail.com
+#
+# --plate accepts any number of plates (space separated):
+#   track.py --plate BYP5855 ABC1234 --email-to me@example.com you@example.com
+#
+# Plate format is whatever the Seattle Municipal Court records search expects
+# (the "displayName" of the cited vehicle) — typically the bare plate string.
+BYP5855
