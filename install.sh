@@ -93,8 +93,10 @@ $PY "$TRACK" --plate "${PLATES[@]}" --state-dir "$STATE_DIR" --dry-run >/dev/nul
 if [ "$INSTALL_CRON" -eq 1 ]; then
   echo "[install] installing cron: $SCHEDULE"
   TMP="$(mktemp)"
-  # Preserve existing crontab minus any previously-managed lines.
-  crontab -l 2>/dev/null | grep -vF "$MARKER" > "$TMP" || true
+  # Preserve existing crontab, dropping (a) any previously-managed line and
+  # (b) any older, unmarked line that runs THIS repo's track.py — so a prior
+  # hand-installed cron doesn't survive as a duplicate.
+  crontab -l 2>/dev/null | grep -vF "$MARKER" | grep -vF "$TRACK" > "$TMP" || true
   {
     echo "$MARKER"
     echo "$SCHEDULE $CMD >> $LOG 2>&1  $MARKER"
