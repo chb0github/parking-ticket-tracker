@@ -39,7 +39,9 @@ echo "[setup] installing requirements ..."
 "$PY" -m pip install --upgrade pip >/dev/null
 "$PY" -m pip install -r "$REPO_DIR/requirements.txt"
 
-echo "[setup] verifying pdfplumber import ..."
-"$PY" -c "import pdfplumber; print('[setup] pdfplumber', pdfplumber.__version__, 'OK')"
+echo "[setup] verifying OCR stack imports ..."
+"$PY" -c "import pypdfium2, pytesseract, PIL; print('[setup] pypdfium2 + pytesseract + Pillow OK')"
+"$PY" -c "import pytesseract; print('[setup] tesseract', pytesseract.get_tesseract_version())" \
+  || echo "[setup] WARNING: tesseract binary not found — install with: sudo apt install tesseract-ocr"
 
 echo "[setup] done. Interpreter: $PY"
