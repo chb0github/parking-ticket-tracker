@@ -129,98 +129,122 @@ def _ocr_delinquency(cuid, dlu, ocr_cache):
     return parsed
 
 
+# Max concurrent cases. The work is HTTP-bound (each case makes ~5 API calls),
+# so threads collapse the per-case latency. Kept modest to be polite to the
+# public court API.
+_MAX_WORKERS = 8
+
+
+def _enrich_one(c, do_pdf, log, plate, ocr_cache, cache_lock):
+    """Enrich a single citation dict. Thread-safe via cache_lock around OCR."""
+    cn = c.get("citationNumber")
+    header = c.get("caseHeader") or {}
+    cuid = header.get("caseInstanceUUID")
+    ticket = {
+        "citationNumber": cn,
+        "violationDate": c.get("violationDate"),
+        "caseInstanceUUID": cuid,
+        "caseNumber": header.get("caseNumber"),
+        "charge": None,
+        "officerNote": None,
+        "fine": None,
+        "location": None,
+        "ticketUrl": None,     # citation PDF
+        "caseReportUrl": None,  # human-facing portal case report page
+        "status": "Open",
+        "statusBad": False,
+        "statusUrl": None,     # source doc the status was read from (e.g. delinquency notice)
+        "officialStatusPage": None,  # official public "check my tickets" page
+        "payBy": None,         # date the ticket may go to collections (from delinquency notice)
+        "hearingsCount": 0,
+        "judgmentsCount": 0,
+        "docketCount": 0,
+        "docketText": "",
+    }
+    if not cuid:
+        return ticket
+    ticket["caseReportUrl"] = seattle.case_report_url(cuid)
+
+    def _cached_ocr(fn, dlu):
+        # Serialize cache read/miss/fill so threads share OCR results and never
+        # OCR the same document twice concurrently.
+        with cache_lock:
+            return fn(cuid, dlu, ocr_cache)
+
+    try:
+        charges = seattle.get_charges(cuid)
+        if charges:
+            ticket["charge"] = charges[0].get("statuteDescription")
+        docket = seattle.get_docketentries(cuid)
+        ticket["docketCount"] = len(docket)
+        ticket["officerNote"] = _officer_note(docket) or None
+        ticket["docketText"] = _docket_text(docket)
+        hc = len(seattle.get_hearings(cuid))
+        jc = len(seattle.get_judgments(cuid))
+        ticket["hearingsCount"] = hc
+        ticket["judgmentsCount"] = jc
+
+        # Structural status + link to the exact document it was read from.
+        status, is_bad, source_entry = _resolve_status(docket, hc, jc)
+        ticket["status"] = status
+        ticket["statusBad"] = is_bad
+        ticket["officialStatusPage"] = seattle.OFFICIAL_STATUS_PAGE
+        if source_entry is not None:
+            try:
+                sdoc = seattle.find_complaint_document(cuid, source_entry["docketEntryUUID"])
+                if sdoc and sdoc.get("documentLinkUUID"):
+                    sdlu = sdoc["documentLinkUUID"]
+                    ticket["statusUrl"] = seattle.pdf_url(cuid, sdlu)
+                    if do_pdf and status == "Delinquent":
+                        try:
+                            dparsed = _cached_ocr(_ocr_delinquency, sdlu)
+                            ticket["payBy"] = dparsed.get("payBy")
+                        except Exception as e:
+                            log(f"[{plate}] #{cn}: delinquency-notice OCR failed: {e}")
+            except Exception as e:
+                log(f"[{plate}] #{cn}: could not resolve status source doc: {e}")
+
+        if do_pdf:
+            entry = seattle.complaint_docket_entry(docket)
+            if entry:
+                doc = seattle.find_complaint_document(cuid, entry["docketEntryUUID"])
+                if doc and doc.get("documentLinkUUID"):
+                    dlu = doc["documentLinkUUID"]
+                    ticket["ticketUrl"] = seattle.pdf_url(cuid, dlu)
+                    try:
+                        parsed = _cached_ocr(_ocr_citation, dlu)
+                        ticket["fine"] = parsed.get("fine")
+                        ticket["location"] = parsed.get("location")
+                        if not parsed.get("ocr_ok"):
+                            log(f"[{plate}] #{cn}: OCR unavailable/failed; fine+location left blank")
+                    except Exception as e:
+                        log(f"[{plate}] #{cn}: PDF fetch/parse failed: {e}")
+    except Exception as e:
+        log(f"[{plate}] #{cn}: enrichment error: {e}")
+
+    ticket["escalationHit"] = ticket.get("statusBad", False)
+    return ticket
+
+
 def enrich_plate(plate, do_pdf=True, log=print, ocr_cache=None):
-    """Fetch + enrich all open tickets for a plate. Returns list of dicts."""
+    """Fetch + enrich all open tickets for a plate (cases run concurrently)."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
     if ocr_cache is None:
         ocr_cache = {}
     citations, total = seattle.list_open_citations(plate)
     log(f"[{plate}] {total} open citation(s)")
-    tickets = []
-    for c in citations:
-        cn = c.get("citationNumber")
-        header = c.get("caseHeader") or {}
-        cuid = header.get("caseInstanceUUID")
-        ticket = {
-            "citationNumber": cn,
-            "violationDate": c.get("violationDate"),
-            "caseInstanceUUID": cuid,
-            "caseNumber": header.get("caseNumber"),
-            "charge": None,
-            "officerNote": None,
-            "fine": None,
-            "location": None,
-            "ticketUrl": None,     # citation PDF
-            "caseReportUrl": None,  # human-facing portal case report page
-            "status": "Open",
-            "statusBad": False,
-            "statusUrl": None,     # source doc the status was read from (e.g. delinquency notice)
-            "officialStatusPage": None,  # official public "check my tickets" page
-            "payBy": None,         # date the ticket may go to collections (from delinquency notice)
-            "hearingsCount": 0,
-            "judgmentsCount": 0,
-            "docketCount": 0,
-            "docketText": "",
-        }
-        if not cuid:
-            tickets.append(ticket)
-            continue
-        ticket["caseReportUrl"] = seattle.case_report_url(cuid)
-        try:
-            charges = seattle.get_charges(cuid)
-            if charges:
-                ticket["charge"] = charges[0].get("statuteDescription")
-            docket = seattle.get_docketentries(cuid)
-            ticket["docketCount"] = len(docket)
-            ticket["officerNote"] = _officer_note(docket) or None
-            ticket["docketText"] = _docket_text(docket)
-            hc = len(seattle.get_hearings(cuid))
-            jc = len(seattle.get_judgments(cuid))
-            ticket["hearingsCount"] = hc
-            ticket["judgmentsCount"] = jc
+    if not citations:
+        return []
 
-            # Structural status + link to the exact document it was read from.
-            status, is_bad, source_entry = _resolve_status(docket, hc, jc)
-            ticket["status"] = status
-            ticket["statusBad"] = is_bad
-            ticket["officialStatusPage"] = seattle.OFFICIAL_STATUS_PAGE
-            # Attribution: link the status to the specific source document
-            # (e.g. the mailed delinquency notice) so it can be verified.
-            if source_entry is not None:
-                try:
-                    sdoc = seattle.find_complaint_document(cuid, source_entry["docketEntryUUID"])
-                    if sdoc and sdoc.get("documentLinkUUID"):
-                        sdlu = sdoc["documentLinkUUID"]
-                        ticket["statusUrl"] = seattle.pdf_url(cuid, sdlu)
-                        # OCR the delinquency notice for the "Pay by" escalation date (cached).
-                        if do_pdf and status == "Delinquent":
-                            try:
-                                dparsed = _ocr_delinquency(cuid, sdlu, ocr_cache)
-                                ticket["payBy"] = dparsed.get("payBy")
-                            except Exception as e:
-                                log(f"[{plate}] #{cn}: delinquency-notice OCR failed: {e}")
-                except Exception as e:
-                    log(f"[{plate}] #{cn}: could not resolve status source doc: {e}")
-
-            if do_pdf:
-                entry = seattle.complaint_docket_entry(docket)
-                if entry:
-                    doc = seattle.find_complaint_document(cuid, entry["docketEntryUUID"])
-                    if doc and doc.get("documentLinkUUID"):
-                        dlu = doc["documentLinkUUID"]
-                        ticket["ticketUrl"] = seattle.pdf_url(cuid, dlu)
-                        try:
-                            parsed = _ocr_citation(cuid, dlu, ocr_cache)
-                            ticket["fine"] = parsed.get("fine")
-                            ticket["location"] = parsed.get("location")
-                            if not parsed.get("ocr_ok"):
-                                log(f"[{plate}] #{cn}: OCR unavailable/failed; fine+location left blank")
-                        except Exception as e:
-                            log(f"[{plate}] #{cn}: PDF fetch/parse failed: {e}")
-        except Exception as e:
-            log(f"[{plate}] #{cn}: enrichment error: {e}")
-
-        ticket["escalationHit"] = ticket.get("statusBad", False)
-        tickets.append(ticket)
+    cache_lock = threading.Lock()
+    workers = min(_MAX_WORKERS, len(citations))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        tickets = list(pool.map(
+            lambda c: _enrich_one(c, do_pdf, log, plate, ocr_cache, cache_lock),
+            citations,
+        ))
     # Sort by violation date ascending (oldest first); missing dates sort last.
     tickets.sort(key=lambda t: t.get("violationDate") or "9999")
     return tickets
