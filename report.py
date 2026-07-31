@@ -85,7 +85,7 @@ a.st-warn { color: #b06a00; font-weight: 600; }
 
 _TABLE_HEADERS = [
     ("Ticket #", ""), ("Violation", ""), ("Charge", ""),
-    ("Fine", "num"), ("Total", "num"), ("Status", ""), ("Pay by", ""), ("Link", ""),
+    ("Fine", "num"), ("Total", "num"), ("Status", ""), ("Goes to collections on", ""), ("Link", ""),
 ]
 
 
@@ -201,7 +201,8 @@ def build_html(per_plate, generated_at=None):
         f"<p class='footer'>Source: Seattle Municipal Court public records. "
         f"<b>Status</b> links to the exact document it was read from (red = "
         f"Delinquent/Judgment); &ldquo;Delinquent&rdquo; means a notice was mailed warning the "
-        f"ticket may go to collections if unpaid — not that it is already in collections."
+        f"ticket may go to collections if unpaid — not that it is already in collections. "
+        f"&ldquo;Goes to collections on&rdquo; is the pay-by deadline from that notice."
         f"{official_link} <b>Link</b> opens the citation PDF. Fine is OCR'd and may misread. "
         f"Total includes a {_money(PROCESSING_FEE)} fee per ticket.</p>"
         f"</body></html>"
@@ -230,7 +231,7 @@ def build_text(per_plate, generated_at=None):
             fine_s = _money(fv) if fv is not None else "—"
             total_s = _money(fv + PROCESSING_FEE) if fv is not None else "—"
             label = t.get("status", "Open")
-            pay_by = f" pay-by {t['payBy']}" if t.get("payBy") else ""
+            pay_by = f" collections-on {t['payBy']}" if t.get("payBy") else ""
             status_src = f" [status: {t['statusUrl']}]" if t.get("statusUrl") else ""
             ticket_src = f" [ticket: {t['ticketUrl']}]" if t.get("ticketUrl") else ""
             lines.append(
