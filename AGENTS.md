@@ -21,7 +21,13 @@ stack. No framework, no database — state is per-plate JSON files.
   LOCATION:`. Returns `{fine, location, ocr_ok}`; all failures → None (graceful).
 - `state.py` — per-plate snapshot load/save (atomic write) + `diff()` →
   (new_set, escalated_set). Escalated = the `status` label changed vs last run
-  (e.g. Open → Delinquent) or a judgment/hearing newly appeared.
+  (e.g. Open → Delinquent) or a judgment/hearing newly appeared. A first run
+  (no prior state) flags nothing. Also holds the **OCR cache**
+  (`ocr_cache.json` in the state dir): `{documentLinkUUID: parsed}` +
+  `{"delinq:"+uuid: parsed}`. A PDF's contents never change, so OCR runs once
+  per document ever — this is the dominant cost, so caching cuts a warm run
+  from ~110s to ~30s (the remainder is API calls). Only successful OCR is
+  cached. `track._ocr_citation` / `_ocr_delinquency` read/fill it.
 
 ## Status model (READ THIS before touching status)
 Status is **structural**, derived in `track.py._resolve_status` from docket

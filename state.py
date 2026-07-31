@@ -28,6 +28,35 @@ def state_path(plate, state_dir=DEFAULT_STATE_DIR):
     return os.path.join(state_dir, f"{_safe_plate(plate)}.json")
 
 
+# --------------------------------------------------------------------------
+# OCR cache — keyed by documentLinkUUID (a document's contents never change),
+# so a citation/notice PDF is only downloaded + OCR'd once, ever. This is the
+# main run-time cost, so caching makes subsequent runs dramatically faster.
+# --------------------------------------------------------------------------
+def _ocr_cache_path(state_dir=DEFAULT_STATE_DIR):
+    return os.path.join(state_dir, "ocr_cache.json")
+
+
+def load_ocr_cache(state_dir=DEFAULT_STATE_DIR):
+    """Return {documentLinkUUID: parsed_dict}, or {} if none/corrupt."""
+    try:
+        with open(_ocr_cache_path(state_dir), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_ocr_cache(cache, state_dir=DEFAULT_STATE_DIR):
+    """Persist the OCR cache atomically."""
+    os.makedirs(state_dir, exist_ok=True)
+    path = _ocr_cache_path(state_dir)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, sort_keys=True)
+    os.replace(tmp, path)
+
+
 def load(plate, state_dir=DEFAULT_STATE_DIR):
     """Return the saved snapshot dict {citationNumber: record}, or {} if none."""
     path = state_path(plate, state_dir)

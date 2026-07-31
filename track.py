@@ -92,8 +92,34 @@ def _resolve_status(docket, hearings_count, judgments_count):
     return "Open", False, None
 
 
-def enrich_plate(plate, do_pdf=True, log=print):
+def _ocr_citation(cuid, dlu, ocr_cache):
+    """OCR a citation PDF's fine+location, using/filling the cache by dlu."""
+    cached = ocr_cache.get(dlu)
+    if cached is not None:
+        return cached
+    parsed = pdfparse.parse_citation_pdf(seattle.download_pdf(cuid, dlu))
+    # Only cache a successful OCR, so a transient failure isn't cached forever.
+    if parsed.get("ocr_ok"):
+        ocr_cache[dlu] = parsed
+    return parsed
+
+
+def _ocr_delinquency(cuid, dlu, ocr_cache):
+    """OCR a delinquency notice's pay-by date, using/filling the cache by dlu."""
+    key = f"delinq:{dlu}"
+    cached = ocr_cache.get(key)
+    if cached is not None:
+        return cached
+    parsed = pdfparse.parse_delinquency_pdf(seattle.download_pdf(cuid, dlu))
+    if parsed.get("ocr_ok"):
+        ocr_cache[key] = parsed
+    return parsed
+
+
+def enrich_plate(plate, do_pdf=True, log=print, ocr_cache=None):
     """Fetch + enrich all open tickets for a plate. Returns list of dicts."""
+    if ocr_cache is None:
+        ocr_cache = {}
     citations, total = seattle.list_open_citations(plate)
     log(f"[{plate}] {total} open citation(s)")
     tickets = []
@@ -152,11 +178,10 @@ def enrich_plate(plate, do_pdf=True, log=print):
                     if sdoc and sdoc.get("documentLinkUUID"):
                         sdlu = sdoc["documentLinkUUID"]
                         ticket["statusUrl"] = seattle.pdf_url(cuid, sdlu)
-                        # OCR the delinquency notice for the "Pay by" escalation date.
+                        # OCR the delinquency notice for the "Pay by" escalation date (cached).
                         if do_pdf and status == "Delinquent":
                             try:
-                                notice = seattle.download_pdf(cuid, sdlu)
-                                dparsed = pdfparse.parse_delinquency_pdf(notice)
+                                dparsed = _ocr_delinquency(cuid, sdlu, ocr_cache)
                                 ticket["payBy"] = dparsed.get("payBy")
                             except Exception as e:
                                 log(f"[{plate}] #{cn}: delinquency-notice OCR failed: {e}")
@@ -171,8 +196,7 @@ def enrich_plate(plate, do_pdf=True, log=print):
                         dlu = doc["documentLinkUUID"]
                         ticket["ticketUrl"] = seattle.pdf_url(cuid, dlu)
                         try:
-                            pdf_bytes = seattle.download_pdf(cuid, dlu)
-                            parsed = pdfparse.parse_citation_pdf(pdf_bytes)
+                            parsed = _ocr_citation(cuid, dlu, ocr_cache)
                             ticket["fine"] = parsed.get("fine")
                             ticket["location"] = parsed.get("location")
                             if not parsed.get("ocr_ok"):
@@ -190,9 +214,14 @@ def enrich_plate(plate, do_pdf=True, log=print):
 
 
 def run(plates, recipients, state_dir, do_pdf=True, dry_run=False, log=print):
+    # OCR cache (keyed by documentLinkUUID) — a PDF's contents never change, so
+    # this is loaded once, reused across plates/runs, and saved at the end.
+    ocr_cache = statemod.load_ocr_cache(state_dir)
+    cache_start = len(ocr_cache)
+
     per_plate = []
     for plate in plates:
-        tickets = enrich_plate(plate, do_pdf=do_pdf, log=log)
+        tickets = enrich_plate(plate, do_pdf=do_pdf, log=log, ocr_cache=ocr_cache)
         previous = statemod.load(plate, state_dir)
         new_set, esc_set = statemod.diff(previous, tickets)
         if new_set:
@@ -200,6 +229,11 @@ def run(plates, recipients, state_dir, do_pdf=True, dry_run=False, log=print):
         if esc_set:
             log(f"[{plate}] ESCALATED: {sorted(esc_set)}")
         per_plate.append((plate, tickets, new_set, esc_set))
+
+    # Persist the OCR cache whenever it grew (safe regardless of send outcome).
+    if len(ocr_cache) != cache_start:
+        statemod.save_ocr_cache(ocr_cache, state_dir)
+        log(f"OCR cache: {cache_start} -> {len(ocr_cache)} entries")
 
     html_body = report.build_html(per_plate)
     text_body = report.build_text(per_plate)
