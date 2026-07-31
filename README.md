@@ -35,7 +35,24 @@ location → diff vs saved state → build HTML → email via Gmail SMTP.
       password <gmail app password>
   ```
 
-## Setup
+## Install (venv + cron, one command)
+
+```
+./install.sh --plate BYP5855 --email-to you@example.com
+```
+Portable — nothing is hardcoded; all paths derive from the repo location.
+It runs `setup.sh` (venv + deps), checks for `tesseract`, primes the OCR cache,
+and installs a cron job (default: Mondays 08:07 local). Options:
+
+- `--plate P [P ...]` — one or more plates (required)
+- `--email-to A [A ...]` — one or more recipients (default: `track.py`'s built-in)
+- `--schedule "M H DoM Mon DoW"` — cron schedule (default `"7 8 * * 1"`)
+- `--state-dir DIR` — where state + OCR cache live (default `$XDG_STATE_HOME/parking-tickets`)
+- `--no-cron` — set up the venv only, print the run command, skip cron
+
+Re-running is safe: it replaces only its own managed crontab line.
+
+## Setup (venv only)
 
 ```
 bash setup.sh
