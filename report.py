@@ -65,28 +65,42 @@ def _esc(s):
 # HTML
 # --------------------------------------------------------------------------
 _STYLE = """
-body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-       color: #1a1a1a; line-height: 1.25; font-size: 12px; margin: 0; padding: 12px; }
-h1 { font-size: 15px; margin: 0 0 2px; }
-h2 { font-size: 13px; margin: 14px 0 3px; }
-.summary { color: #555; font-size: 11px; margin: 0 0 6px; }
-table { border-collapse: collapse; width: 100%; font-size: 12px; }
-th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #ebebeb; white-space: nowrap; }
-th { background: #f5f6f8; font-weight: 600; border-bottom: 1px solid #ccc; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-tr.new td { background: #fff8e1; }
-tr.total td { font-weight: 700; border-top: 2px solid #ccc; background: #f5f6f8; }
-a { color: #1155cc; text-decoration: none; }
-a.st-bad { color: #c5221f; font-weight: 700; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+       color: #26272d; line-height: 1.4; font-size: 13px; margin: 0; padding: 0;
+       background: #eef1f6; }
+.wrap { max-width: 820px; margin: 0 auto; padding: 20px 14px 32px; }
+.card { background: #ffffff; border: 1px solid #d9e0ea; border-radius: 8px;
+        overflow: hidden; box-shadow: 0 1px 3px rgba(0,70,173,.08); margin-bottom: 18px; }
+.hdr { background: #0046ad; color: #fff; padding: 16px 18px; }
+.hdr h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+.hdr .sub { color: #cfe0ff; font-size: 12px; margin-top: 3px; }
+h2 { font-size: 14px; margin: 0; padding: 14px 16px 0; font-weight: 600; }
+h2 a { color: #003da5; }
+.summary { color: #5b6472; font-size: 12px; margin: 2px 0 0; padding: 0 16px 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; table-layout: fixed; }
+th, td { text-align: left; padding: 8px 10px; vertical-align: top;
+         overflow-wrap: break-word; word-break: break-word; }
+th { background: #003da5; color: #eaf1ff; font-weight: 600; font-size: 10.5px;
+     text-transform: uppercase; letter-spacing: .3px; }
+td { border-bottom: 1px solid #eef1f5; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.nowrap { white-space: nowrap; }
+tr.total td { font-weight: 700; border-top: 2px solid #c3d2ea; background: #e1ecfe; color: #003da5; }
+a { color: #0046ad; text-decoration: none; }
+a:hover { text-decoration: underline; }
+a.st-bad { color: #e4002b; font-weight: 700; }
 a.st-warn { color: #b06a00; font-weight: 600; }
-.new-dot { color: #b06a00; font-weight: 700; }
-.footer { color: #999; font-size: 10px; margin-top: 14px; }
+.new-dot { color: #0046ad; font-weight: 700; margin-right: 2px; }
+.footer { color: #8a93a3; font-size: 10.5px; margin: 0; padding: 4px 16px 16px; line-height: 1.5; }
 """
 
 _TABLE_HEADERS = [
-    ("Ticket #", ""), ("Violation", ""), ("Charge", ""),
-    ("Fine", "num"), ("Total", "num"), ("Status", ""), ("Goes to collections on", ""), ("Link", ""),
+    ("Ticket #", "nowrap"), ("Violation", "nowrap"), ("Charge", ""),
+    ("Fine", "num"), ("Total", "num"), ("Status", "nowrap"), ("To Collections", "nowrap"),
 ]
+
+# Column widths for fixed layout (must sum ~100%).
+_COL_WIDTHS = ["13%", "11%", "27%", "9%", "10%", "13%", "17%"]
 
 
 def _status_cell(t):
@@ -106,8 +120,15 @@ def _status_cell(t):
     return f"<span{span_cls}>{_esc(label)}</span>"
 
 
-def _row_html(t, is_new):
-    cls = "new" if is_new else ""
+def _row_html(t, is_new, idx):
+    # Zebra striping via inline bg (email-safe; :nth-child is unreliable in mail
+    # clients). NEW rows get a soft blue tint + left accent instead of a stripe.
+    if is_new:
+        bg = "#eef4ff"
+        first_td_style = ' style="border-left:3px solid #3b6fd4"'
+    else:
+        bg = "#ffffff" if idx % 2 == 0 else "#f4f6f9"
+        first_td_style = ""
     fv = _fine_value(t)
     fine_cell = _money(fv) if fv is not None else "—"
     total_cell = _money(fv + PROCESSING_FEE) if fv is not None else "—"
@@ -117,19 +138,20 @@ def _row_html(t, is_new):
         tick = f'<a href="{_esc(case_url)}">{tick}</a>'
     if is_new:
         tick = f'<span class="new-dot">●</span> {tick}'
+    # Charge text hyperlinks to the citation PDF (the original ticket).
+    charge_text = _esc(t.get("charge") or "—")
     ticket_url = t.get("ticketUrl")
-    link_cell = f'<a href="{_esc(ticket_url)}">ticket</a>' if ticket_url else "—"
+    charge_cell = f'<a href="{_esc(ticket_url)}">{charge_text}</a>' if ticket_url else charge_text
     pay_by = t.get("payBy") or "—"
     return (
-        f'<tr class="{cls}">'
-        f"<td>{tick}</td>"
-        f"<td>{_esc(_fmt_date(t.get('violationDate')))}</td>"
-        f'<td>{_esc(t.get("charge") or "—")}</td>'
+        f'<tr style="background:{bg}">'
+        f'<td class="nowrap"{first_td_style}>{tick}</td>'
+        f'<td class="nowrap">{_esc(_fmt_date(t.get("violationDate")))}</td>'
+        f"<td>{charge_cell}</td>"
         f'<td class="num">{_esc(fine_cell)}</td>'
         f'<td class="num">{_esc(total_cell)}</td>'
-        f"<td>{_status_cell(t)}</td>"
-        f'<td>{_esc(pay_by)}</td>'
-        f"<td>{link_cell}</td>"
+        f'<td class="nowrap">{_status_cell(t)}</td>'
+        f'<td class="nowrap">{_esc(pay_by)}</td>'
         f"</tr>"
     )
 
@@ -143,7 +165,7 @@ def _total_row_html(tickets):
         f'<td>Total ({len(tickets)})</td>'
         f'<td class="num">{_esc(_money(fine_sum) + approx)}</td>'
         f'<td class="num">{_esc(_money(grand) + approx)}</td>'
-        '<td></td><td></td><td></td></tr>'
+        '<td></td><td></td></tr>'
     )
 
 
@@ -157,21 +179,26 @@ def _plate_section_html(plate, tickets, new_set, esc_set):
         summary += f" · {n_esc} escalated"
 
     if not tickets:
-        body = "<p>No open tickets. 🎉</p>"
+        body = "<p style='padding:0 16px 16px;color:#5b6472'>No open tickets. 🎉</p>"
     else:
         rows = "\n".join(
-            _row_html(t, t.get("citationNumber") in new_set) for t in tickets
+            _row_html(t, t.get("citationNumber") in new_set, i)
+            for i, t in enumerate(tickets)
         )
         header = "".join(
             f'<th class="{c}">{h}</th>' if c else f"<th>{h}</th>" for (h, c) in _TABLE_HEADERS
         )
+        colgroup = "<colgroup>" + "".join(f'<col style="width:{w}">' for w in _COL_WIDTHS) + "</colgroup>"
         body = (
-            "<table><thead><tr>" + header + "</tr></thead><tbody>"
+            "<table>" + colgroup + "<thead><tr>" + header + "</tr></thead><tbody>"
             + rows + _total_row_html(tickets) + "</tbody></table>"
         )
     search_url = seattle.citations_search_url(plate)
     heading = f'<a href="{_esc(search_url)}">{_esc(plate)}</a>'
-    return f"<h2>Plate {heading}</h2>\n<p class='summary'>{_esc(summary)}</p>\n{body}"
+    return (
+        f'<div class="card"><h2>Plate {heading}</h2>'
+        f"<p class='summary'>{_esc(summary)}</p>{body}</div>"
+    )
 
 
 def _official_page(per_plate):
@@ -199,16 +226,20 @@ def build_html(per_plate, generated_at=None):
         if official else ""
     )
     return (
-        f"<!doctype html><html><head><meta charset='utf-8'><style>{_STYLE}</style></head>"
-        f"<body><h1>Seattle Parking Ticket Report</h1><p class='summary'>{_esc(sub)}</p>{sections}"
+        f"<!doctype html><html><head><meta charset='utf-8'>"
+        f"<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<style>{_STYLE}</style></head><body><div class='wrap'>"
+        f"<div class='card'><div class='hdr'>"
+        f"<h1>🅿️ Seattle Parking Ticket Report</h1>"
+        f"<div class='sub'>{_esc(sub)}</div></div>"
         f"<p class='footer'>Source: Seattle Municipal Court public records. "
-        f"<b>Status</b> links to the exact document it was read from (red = "
-        f"Delinquent/Judgment); &ldquo;Delinquent&rdquo; means a notice was mailed warning the "
-        f"ticket may go to collections if unpaid — not that it is already in collections. "
-        f"&ldquo;Goes to collections on&rdquo; is the pay-by deadline from that notice."
-        f"{official_link} <b>Link</b> opens the citation PDF. Fine is OCR'd and may misread. "
-        f"Total includes a {_money(PROCESSING_FEE)} fee per ticket.</p>"
-        f"</body></html>"
+        f"<b>Ticket #</b> opens the case report; <b>Status</b> links to the exact document it "
+        f"was read from (red = Delinquent/Judgment). &ldquo;Delinquent&rdquo; means a notice was "
+        f"mailed warning the ticket may go to collections if unpaid — not that it is already in "
+        f"collections. &ldquo;Goes to collections on&rdquo; is the pay-by deadline from that "
+        f"notice.{official_link} The <b>Charge</b> links to the citation PDF (original ticket). "
+        f"Fine is OCR'd and may misread. Total includes a {_money(PROCESSING_FEE)} fee per ticket.</p>"
+        f"</div>{sections}</div></body></html>"
     )
 
 

@@ -75,7 +75,14 @@ def diff(previous, tickets):
 
     previous: dict from load(); tickets: this run's list of enriched dicts.
     Returns (new_set, escalated_set).
+
+    First run (no prior state) establishes a baseline and flags NOTHING as new
+    or escalated — otherwise every ticket would spuriously show as "new" on the
+    very first report. Only changes relative to a saved baseline are flagged.
     """
+    if not previous:
+        return set(), set()
+
     new = set()
     escalated = set()
     for t in tickets:
