@@ -111,10 +111,12 @@ def _case_base(case_uuid):
 # --------------------------------------------------------------------------
 # 1. Open citations for a plate
 # --------------------------------------------------------------------------
-def list_open_citations(plate, size=100):
-    """Return (results, total) of OPEN citations for a plate.
+def citations_search_url(plate, size=100):
+    """The Seattle court records API URL that lists a plate's open citations.
 
-    Server-side filters closedFlag=false, so every result is an open case.
+    This is the canonical "original link" for a plate — the same query the
+    tracker runs. (The public SPA has no usable per-search deep link, so this
+    API URL is the authoritative source that returns real data.)
     """
     params = {
         "defendantParty.partyActorInstance.displayName": plate,
@@ -125,8 +127,15 @@ def list_open_citations(plate, size=100):
         "size": str(size),
         "sort": "violationDate,desc",
     }
-    url = f"{API_ROOT}/courts/cms/citations?" + urllib.parse.urlencode(params)
-    payload = _request(url)
+    return f"{API_ROOT}/courts/cms/citations?" + urllib.parse.urlencode(params)
+
+
+def list_open_citations(plate, size=100):
+    """Return (results, total) of OPEN citations for a plate.
+
+    Server-side filters closedFlag=false, so every result is an open case.
+    """
+    payload = _request(citations_search_url(plate, size))
     total = ((payload.get("page") or {}).get("totalElements")) if isinstance(payload, dict) else None
     return _results(payload), total
 

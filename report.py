@@ -11,6 +11,8 @@ from __future__ import annotations
 import datetime
 import html
 
+import seattle
+
 # Flat processing fee added to every citation (dollars).
 PROCESSING_FEE = 3.60
 
@@ -83,7 +85,7 @@ a.st-warn { color: #b06a00; font-weight: 600; }
 
 _TABLE_HEADERS = [
     ("Ticket #", ""), ("Violation", ""), ("Charge", ""),
-    ("Fine", "num"), ("Total", "num"), ("Status", ""), ("Link", ""),
+    ("Fine", "num"), ("Total", "num"), ("Status", ""), ("Pay by", ""), ("Link", ""),
 ]
 
 
@@ -114,6 +116,7 @@ def _row_html(t, is_new):
         tick = f'<span class="new-dot">●</span> {tick}'
     ticket_url = t.get("ticketUrl")
     link_cell = f'<a href="{_esc(ticket_url)}">ticket</a>' if ticket_url else "—"
+    pay_by = t.get("payBy") or "—"
     return (
         f'<tr class="{cls}">'
         f"<td>{tick}</td>"
@@ -122,6 +125,7 @@ def _row_html(t, is_new):
         f'<td class="num">{_esc(fine_cell)}</td>'
         f'<td class="num">{_esc(total_cell)}</td>'
         f"<td>{_status_cell(t)}</td>"
+        f'<td>{_esc(pay_by)}</td>'
         f"<td>{link_cell}</td>"
         f"</tr>"
     )
@@ -136,7 +140,7 @@ def _total_row_html(tickets):
         f'<td>Total ({len(tickets)})</td>'
         f'<td class="num">{_esc(_money(fine_sum) + approx)}</td>'
         f'<td class="num">{_esc(_money(grand) + approx)}</td>'
-        '<td></td><td></td></tr>'
+        '<td></td><td></td><td></td></tr>'
     )
 
 
@@ -162,7 +166,9 @@ def _plate_section_html(plate, tickets, new_set, esc_set):
             "<table><thead><tr>" + header + "</tr></thead><tbody>"
             + rows + _total_row_html(tickets) + "</tbody></table>"
         )
-    return f"<h2>Plate {_esc(plate)}</h2>\n<p class='summary'>{_esc(summary)}</p>\n{body}"
+    search_url = seattle.citations_search_url(plate)
+    heading = f'<a href="{_esc(search_url)}">{_esc(plate)}</a>'
+    return f"<h2>Plate {heading}</h2>\n<p class='summary'>{_esc(summary)}</p>\n{body}"
 
 
 def _official_page(per_plate):
@@ -212,6 +218,7 @@ def build_text(per_plate, generated_at=None):
         fine_sum, fee_sum, grand, all_known = _totals(tickets)
         approx = "" if all_known else "+"
         lines.append(f"== Plate {plate}: {len(tickets)} open ==")
+        lines.append(f"   search: {seattle.citations_search_url(plate)}")
         for t in tickets:
             flags = []
             if t.get("citationNumber") in new_set:
@@ -223,12 +230,13 @@ def build_text(per_plate, generated_at=None):
             fine_s = _money(fv) if fv is not None else "—"
             total_s = _money(fv + PROCESSING_FEE) if fv is not None else "—"
             label = t.get("status", "Open")
+            pay_by = f" pay-by {t['payBy']}" if t.get("payBy") else ""
             status_src = f" [status: {t['statusUrl']}]" if t.get("statusUrl") else ""
             ticket_src = f" [ticket: {t['ticketUrl']}]" if t.get("ticketUrl") else ""
             lines.append(
                 f"  #{t.get('citationNumber')}{flag} {_fmt_date(t.get('violationDate'))} "
                 f"{t.get('charge') or '—'} | fine {fine_s} + fee {_money(PROCESSING_FEE)} = {total_s} "
-                f"| {label}{status_src}{ticket_src}"
+                f"| {label}{pay_by}{status_src}{ticket_src}"
             )
         lines.append(
             f"  TOTAL ({len(tickets)}): fines {_money(fine_sum)}{approx} "

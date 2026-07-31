@@ -29,6 +29,11 @@ _DOLLAR_RE = re.compile(r"\$\s*([\d,]+\.\d{2})")
 _LOCATION_RE = re.compile(
     r"INFRACTION\s+LOCATION\s*[:\-]?\s*\n?\s*(.+)", re.IGNORECASE
 )
+# "Pay by: August 06, 2026" on the delinquency notice — the date after which
+# the ticket may escalate to collections.
+_PAY_BY_RE = re.compile(
+    r"Pay by\s*[:\-]?\s*([A-Z][a-z]+\.?\s+\d{1,2},?\s+\d{4})", re.IGNORECASE
+)
 
 
 def _ocr_text(pdf_bytes):
@@ -112,4 +117,27 @@ def parse_citation_pdf(pdf_bytes):
     if m:
         result["location"] = _clean_location(m.group(1))
 
+    return result
+
+
+def parse_delinquency_pdf(pdf_bytes):
+    """Return {'payBy': str|None, 'ocr_ok': bool} from a delinquency notice.
+
+    'payBy' is the date after which the ticket may go to collections, as
+    printed on the mailed notice (e.g. "August 06, 2026").
+    """
+    result = {"payBy": None, "ocr_ok": False}
+    text = _ocr_text(pdf_bytes)
+    if not text:
+        return result
+    result["ocr_ok"] = True
+    m = _PAY_BY_RE.search(text)
+    if m:
+        # Normalize whitespace and ensure "Month DD, YYYY" formatting.
+        raw = re.sub(r"\s+", " ", m.group(1).strip()).replace(",", "")
+        parts = raw.split(" ")
+        if len(parts) == 3:
+            result["payBy"] = f"{parts[0]} {parts[1]}, {parts[2]}"
+        else:
+            result["payBy"] = raw
     return result

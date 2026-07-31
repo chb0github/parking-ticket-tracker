@@ -109,6 +109,7 @@ def enrich_plate(plate, do_pdf=True, log=print):
             "statusBad": False,
             "statusUrl": None,     # source doc the status was read from (e.g. delinquency notice)
             "officialStatusPage": None,  # official public "check my tickets" page
+            "payBy": None,         # date the ticket may go to collections (from delinquency notice)
             "hearingsCount": 0,
             "judgmentsCount": 0,
             "docketCount": 0,
@@ -141,7 +142,16 @@ def enrich_plate(plate, do_pdf=True, log=print):
                 try:
                     sdoc = seattle.find_complaint_document(cuid, source_entry["docketEntryUUID"])
                     if sdoc and sdoc.get("documentLinkUUID"):
-                        ticket["statusUrl"] = seattle.pdf_url(cuid, sdoc["documentLinkUUID"])
+                        sdlu = sdoc["documentLinkUUID"]
+                        ticket["statusUrl"] = seattle.pdf_url(cuid, sdlu)
+                        # OCR the delinquency notice for the "Pay by" escalation date.
+                        if do_pdf and status == "Delinquent":
+                            try:
+                                notice = seattle.download_pdf(cuid, sdlu)
+                                dparsed = pdfparse.parse_delinquency_pdf(notice)
+                                ticket["payBy"] = dparsed.get("payBy")
+                            except Exception as e:
+                                log(f"[{plate}] #{cn}: delinquency-notice OCR failed: {e}")
                 except Exception as e:
                     log(f"[{plate}] #{cn}: could not resolve status source doc: {e}")
 
@@ -166,6 +176,8 @@ def enrich_plate(plate, do_pdf=True, log=print):
 
         ticket["escalationHit"] = ticket.get("statusBad", False)
         tickets.append(ticket)
+    # Sort by violation date ascending (oldest first); missing dates sort last.
+    tickets.sort(key=lambda t: t.get("violationDate") or "9999")
     return tickets
 
 
