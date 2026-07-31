@@ -19,13 +19,6 @@ import re
 
 DEFAULT_STATE_DIR = os.path.expanduser("~/.local/state/parking-tickets")
 
-# Structural escalation signals in docket/charge free text.
-_ESCALATION_RE = re.compile(
-    r"impound|immobiliz|\btow(ed|ing)?\b|collection|warrant|"
-    r"default judgment|failure to (respond|appear)|penalty added",
-    re.IGNORECASE,
-)
-
 
 def _safe_plate(plate):
     return re.sub(r"[^A-Za-z0-9_.-]", "_", plate)
@@ -69,19 +62,12 @@ def _snapshot_record(t):
         "charge": t.get("charge"),
         "fine": t.get("fine"),
         "location": t.get("location"),
+        "status": t.get("status", "Open"),
+        "statusBad": t.get("statusBad", False),
         "hearingsCount": t.get("hearingsCount", 0),
         "judgmentsCount": t.get("judgmentsCount", 0),
         "docketCount": t.get("docketCount", 0),
-        "escalationHit": t.get("escalationHit", False),
     }
-
-
-def escalation_hit(ticket):
-    """True if any docket/charge free text matches escalation keywords."""
-    haystack = " ".join(
-        str(ticket.get(k, "")) for k in ("charge", "officerNote", "docketText")
-    )
-    return bool(_ESCALATION_RE.search(haystack))
 
 
 def diff(previous, tickets):
@@ -98,13 +84,13 @@ def diff(previous, tickets):
         if prev is None:
             new.add(cn)
             continue
-        # Escalation: a structural signal grew or a keyword newly appears.
+        # Escalated: the status label changed (e.g. Open -> Collections), or a
+        # judgment/hearing newly appeared. Status is the authoritative signal.
+        status_changed = t.get("status", "Open") != prev.get("status", "Open")
         grew = (
-            t.get("hearingsCount", 0) > prev.get("hearingsCount", 0)
-            or t.get("judgmentsCount", 0) > prev.get("judgmentsCount", 0)
-            or t.get("docketCount", 0) > prev.get("docketCount", 0)
+            t.get("judgmentsCount", 0) > prev.get("judgmentsCount", 0)
+            or t.get("hearingsCount", 0) > prev.get("hearingsCount", 0)
         )
-        newly_flagged = t.get("escalationHit", False) and not prev.get("escalationHit", False)
-        if grew or newly_flagged:
+        if status_changed or grew:
             escalated.add(cn)
     return new, escalated

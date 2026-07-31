@@ -20,9 +20,30 @@ stack. No framework, no database — state is per-plate JSON files.
   renders, `pytesseract` OCRs, regex pulls `Fine: $NN.NN` and `INFRACTION
   LOCATION:`. Returns `{fine, location, ocr_ok}`; all failures → None (graceful).
 - `state.py` — per-plate snapshot load/save (atomic write) + `diff()` →
-  (new_set, escalated_set). Escalation is **structural** (hearings/judgments
-  appear, docket grows, or keyword hit), NOT from the PDF (its page-2 boilerplate
-  always mentions tow/impound, so it's not a signal).
+  (new_set, escalated_set). Escalated = the `status` label changed vs last run
+  (e.g. Open → Delinquent) or a judgment/hearing newly appeared.
+
+## Status model (READ THIS before touching status)
+Status is **structural**, derived in `track.py._resolve_status` from docket
+entry *types*, not fuzzy keyword matches in free text (keyword matching gave
+false positives — e.g. an officer note containing "impound" as boilerplate):
+- `judgments` count > 0            → **Judgment** (bad)
+- docket has a `Mail Vendor` entry whose subtype contains `Delinquent`
+  ("Mail Vendor - Parking-Camera Delinquent") → **Delinquent** (bad)
+- `hearings` count > 0             → **Hearing set**
+- otherwise                         → **Open**
+
+**"Delinquent" ≠ "in collections".** The mailed notice says the ticket *may* go
+to collections if unpaid by a due date. Do not relabel it "Collections" — that
+was an earlier mistake caught by actually OCR'ing the notice.
+
+**Attribution:** the status links to the *exact document it was read from* — the
+delinquency notice PDF (verified 200 / real %PDF). Do NOT link to a
+`courtrecords.seattle.gov/court/.../case/...` SPA URL: that app is history-mode
+and returns the **same JS shell (identical bytes) for every path**, including
+bogus ones, so such links 404 client-side. There is no server-rendered per-case
+page. The official browsable status page is `OFFICIAL_STATUS_PAGE`
+(seattle.gov/courts/chek4Tkts), shown in the footer.
 - `report.py` — `build_html`, `build_text`, `build_subject`. NEW=amber row,
   ESCALATED=red row + badges; per-plate summary with total fines.
 - `mailer.py` — Gmail via stdlib `smtplib.SMTP_SSL` + `EmailMessage`. Creds from

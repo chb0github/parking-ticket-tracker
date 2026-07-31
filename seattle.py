@@ -193,6 +193,14 @@ def pdf_url(case_uuid, document_link_uuid):
     )
 
 
+# Official public "check my tickets" status page (printed on the delinquency
+# notice itself). The court records SPA has no server-rendered per-case deep
+# link — every path returns the same JS shell — so we point people here for
+# the authoritative, browsable status and link the specific source document
+# (the mailed notice PDF) for attribution.
+OFFICIAL_STATUS_PAGE = "https://www.seattle.gov/courts/chek4Tkts"
+
+
 def complaint_docket_entry(docket_entries):
     """Pick the docket entry that carries the citation PDF.
 

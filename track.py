@@ -49,6 +49,43 @@ def _docket_text(docket_entries):
     )
 
 
+def _delinquent_entry(docket_entries):
+    """The 'Mail Vendor - Parking-Camera Delinquent' docket entry, if any.
+
+    This is the authoritative structured signal that a citation has escalated
+    to a delinquency/collections notice (a notice was mailed to the owner).
+    """
+    for e in docket_entries:
+        if e.get("docketEntryType") == "Mail Vendor" and "Delinquent" in (
+            e.get("docketEntrySubType") or ""
+        ):
+            return e
+    return None
+
+
+def _resolve_status(docket, hearings_count, judgments_count):
+    """Return (status_label, is_bad, source_entry).
+
+    Status is derived from STRUCTURED signals (docket entry types / counts),
+    not fuzzy keyword matches. source_entry is the docket entry that
+    establishes the status (so the report can link to that exact document for
+    attribution), or None.
+
+    Note on "Delinquent": the mailed "Parking-Camera Delinquent" notice warns
+    the ticket *may* go to collections if unpaid by a due date — it does not
+    itself mean the case is already in collections. We label it "Delinquent"
+    and link the notice so the reader can verify.
+    """
+    if judgments_count > 0:
+        return "Judgment", True, None
+    delinquent = _delinquent_entry(docket)
+    if delinquent is not None:
+        return "Delinquent", True, delinquent
+    if hearings_count > 0:
+        return "Hearing set", False, None
+    return "Open", False, None
+
+
 def enrich_plate(plate, do_pdf=True, log=print):
     """Fetch + enrich all open tickets for a plate. Returns list of dicts."""
     citations, total = seattle.list_open_citations(plate)
@@ -67,7 +104,11 @@ def enrich_plate(plate, do_pdf=True, log=print):
             "officerNote": None,
             "fine": None,
             "location": None,
-            "pdfUrl": None,
+            "ticketUrl": None,     # citation PDF
+            "status": "Open",
+            "statusBad": False,
+            "statusUrl": None,     # source doc the status was read from (e.g. delinquency notice)
+            "officialStatusPage": None,  # official public "check my tickets" page
             "hearingsCount": 0,
             "judgmentsCount": 0,
             "docketCount": 0,
@@ -84,8 +125,25 @@ def enrich_plate(plate, do_pdf=True, log=print):
             ticket["docketCount"] = len(docket)
             ticket["officerNote"] = _officer_note(docket) or None
             ticket["docketText"] = _docket_text(docket)
-            ticket["hearingsCount"] = len(seattle.get_hearings(cuid))
-            ticket["judgmentsCount"] = len(seattle.get_judgments(cuid))
+            hc = len(seattle.get_hearings(cuid))
+            jc = len(seattle.get_judgments(cuid))
+            ticket["hearingsCount"] = hc
+            ticket["judgmentsCount"] = jc
+
+            # Structural status + link to the exact document it was read from.
+            status, is_bad, source_entry = _resolve_status(docket, hc, jc)
+            ticket["status"] = status
+            ticket["statusBad"] = is_bad
+            ticket["officialStatusPage"] = seattle.OFFICIAL_STATUS_PAGE
+            # Attribution: link the status to the specific source document
+            # (e.g. the mailed delinquency notice) so it can be verified.
+            if source_entry is not None:
+                try:
+                    sdoc = seattle.find_complaint_document(cuid, source_entry["docketEntryUUID"])
+                    if sdoc and sdoc.get("documentLinkUUID"):
+                        ticket["statusUrl"] = seattle.pdf_url(cuid, sdoc["documentLinkUUID"])
+                except Exception as e:
+                    log(f"[{plate}] #{cn}: could not resolve status source doc: {e}")
 
             if do_pdf:
                 entry = seattle.complaint_docket_entry(docket)
@@ -93,7 +151,7 @@ def enrich_plate(plate, do_pdf=True, log=print):
                     doc = seattle.find_complaint_document(cuid, entry["docketEntryUUID"])
                     if doc and doc.get("documentLinkUUID"):
                         dlu = doc["documentLinkUUID"]
-                        ticket["pdfUrl"] = seattle.pdf_url(cuid, dlu)
+                        ticket["ticketUrl"] = seattle.pdf_url(cuid, dlu)
                         try:
                             pdf_bytes = seattle.download_pdf(cuid, dlu)
                             parsed = pdfparse.parse_citation_pdf(pdf_bytes)
@@ -106,7 +164,7 @@ def enrich_plate(plate, do_pdf=True, log=print):
         except Exception as e:
             log(f"[{plate}] #{cn}: enrichment error: {e}")
 
-        ticket["escalationHit"] = statemod.escalation_hit(ticket)
+        ticket["escalationHit"] = ticket.get("statusBad", False)
         tickets.append(ticket)
     return tickets
 
