@@ -112,6 +112,9 @@ def _row_html(t, is_new):
     fine_cell = _money(fv) if fv is not None else "—"
     total_cell = _money(fv + PROCESSING_FEE) if fv is not None else "—"
     tick = _esc(t.get("citationNumber"))
+    case_url = t.get("caseReportUrl")
+    if case_url:
+        tick = f'<a href="{_esc(case_url)}">{tick}</a>'
     if is_new:
         tick = f'<span class="new-dot">●</span> {tick}'
     ticket_url = t.get("ticketUrl")

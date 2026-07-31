@@ -202,11 +202,20 @@ def pdf_url(case_uuid, document_link_uuid):
     )
 
 
+# Public human-facing case report on the court records portal. This is a
+# client-side-rendered SPA (history-mode routing under /portal/), so a plain
+# HTTP fetch always returns the same JS shell — it can only be verified in a
+# real browser, where this URL does render the case's citation report.
+PORTAL_ROOT = "https://courtrecords.seattle.gov/portal"
+
+
+def case_report_url(case_uuid):
+    """Human-facing citation report page for a case (portal SPA)."""
+    return f"{PORTAL_ROOT}/court/{COURT_UUID}/case/{case_uuid}"
+
+
 # Official public "check my tickets" status page (printed on the delinquency
-# notice itself). The court records SPA has no server-rendered per-case deep
-# link — every path returns the same JS shell — so we point people here for
-# the authoritative, browsable status and link the specific source document
-# (the mailed notice PDF) for attribution.
+# notice itself).
 OFFICIAL_STATUS_PAGE = "https://www.seattle.gov/courts/chek4Tkts"
 
 

@@ -105,6 +105,7 @@ def enrich_plate(plate, do_pdf=True, log=print):
             "fine": None,
             "location": None,
             "ticketUrl": None,     # citation PDF
+            "caseReportUrl": None,  # human-facing portal case report page
             "status": "Open",
             "statusBad": False,
             "statusUrl": None,     # source doc the status was read from (e.g. delinquency notice)
@@ -118,6 +119,7 @@ def enrich_plate(plate, do_pdf=True, log=print):
         if not cuid:
             tickets.append(ticket)
             continue
+        ticket["caseReportUrl"] = seattle.case_report_url(cuid)
         try:
             charges = seattle.get_charges(cuid)
             if charges:
