@@ -34,10 +34,12 @@ def _credentials(host=SMTP_HOST):
     return login, password
 
 
-def send(recipients, subject, html_body, text_body, sender=None):
+def send(recipients, subject, html_body, text_body, sender=None, inline_images=None):
     """Send one multipart (text + HTML) email to all recipients.
 
     recipients: list of addresses. sender defaults to the .netrc login.
+    inline_images: optional list of (cid, filepath) tuples embedded in the HTML
+        via <img src="cid:..."> as multipart/related parts.
     """
     if isinstance(recipients, str):
         recipients = [recipients]
@@ -54,6 +56,19 @@ def send(recipients, subject, html_body, text_body, sender=None):
     msg["Subject"] = subject
     msg.set_content(text_body or "See the HTML version of this report.")
     msg.add_alternative(html_body, subtype="html")
+
+    # Attach inline images to the HTML alternative (multipart/related).
+    if inline_images:
+        # The HTML alternative is the last part added; add_related nests it.
+        html_part = list(msg.iter_parts())[-1]
+        for cid, path in inline_images:
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                # Non-fatal: the HTML has a graceful fallback if the image is missing.
+                continue
+            html_part.add_related(data, maintype="image", subtype="png", cid=f"<{cid}>")
 
     context = ssl.create_default_context()
     try:

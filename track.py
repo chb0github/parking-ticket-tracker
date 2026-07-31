@@ -19,6 +19,7 @@ absolute path (cron does not activate venvs):
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import traceback
 
@@ -29,6 +30,11 @@ import report
 import mailer
 
 DEFAULT_RECIPIENT = "christian.bongiorno@gmail.com"
+
+# Seattle Municipal Court logo (from secure8.i-doxs.net/SeattleSMC favicon),
+# embedded in the email header as an inline CID image.
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets_smc_logo.png")
+_LOGO_CID = "smclogo"
 
 
 def _officer_note(docket_entries):
@@ -206,7 +212,8 @@ def run(plates, recipients, state_dir, do_pdf=True, dry_run=False, log=print):
         print("\n[HTML body follows]\n")
         print(html_body)
     else:
-        mailer.send(recipients, subject, html_body, text_body)
+        images = [(_LOGO_CID, _LOGO_PATH)] if os.path.exists(_LOGO_PATH) else None
+        mailer.send(recipients, subject, html_body, text_body, inline_images=images)
         log(f"Sent report to {', '.join(recipients)}: {subject}")
         # Only persist state after a successful send, so a send failure
         # doesn't silently swallow "new" flags on the next run.
