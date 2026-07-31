@@ -149,7 +149,7 @@ def _plate_section_html(plate, tickets, new_set, esc_set):
     n_esc = len(esc_set)
     summary = f"{len(tickets)} open · +{_money(PROCESSING_FEE)} fee/ticket"
     if n_new:
-        summary += f" · {n_new} new"
+        summary += f" · {n_new} new (● = new since last week)"
     if n_esc:
         summary += f" · {n_esc} escalated"
 
