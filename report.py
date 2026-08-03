@@ -92,6 +92,25 @@ a.st-bad { color: #e4002b; font-weight: 700; }
 a.st-warn { color: #b06a00; font-weight: 600; }
 .new-dot { color: #0046ad; font-weight: 700; margin-right: 2px; }
 .footer { color: #8a93a3; font-size: 10.5px; margin: 0; padding: 4px 16px 16px; line-height: 1.5; }
+
+/* Phones: the 7-column spreadsheet can't fit ~360-390px, so restack each
+   ticket row into a labeled card. Scoped to .tickets so the header layout
+   table is untouched. Field labels come from each td's data-label. */
+@media only screen and (max-width: 560px) {
+  .wrap { padding: 12px 8px 24px; }
+  .tickets, .tickets tbody, .tickets tr, .tickets td { display: block; width: auto !important; }
+  .tickets thead, .tickets colgroup { display: none; }
+  .tickets tr { border: 1px solid #d9e0ea; border-radius: 8px; margin: 0 12px 10px; padding: 4px 0; }
+  .tickets td { border: none; padding: 3px 14px; white-space: normal !important;
+                text-align: left !important; word-break: normal; }
+  .tickets td::before { content: attr(data-label); display: block; font-size: 10px;
+                text-transform: uppercase; letter-spacing: .3px; color: #8a93a3;
+                font-weight: 600; margin-bottom: 1px; }
+  .tickets td:empty { display: none; }
+  .tickets tr.total { background: #e1ecfe !important; }
+  .tickets tr.total td { border-top: none; }
+  .tickets tr.total td:empty { display: none; }
+}
 """
 
 _TABLE_HEADERS = [
@@ -145,13 +164,13 @@ def _row_html(t, is_new, idx):
     pay_by = t.get("payBy") or "—"
     return (
         f'<tr style="background:{bg}">'
-        f'<td class="nowrap"{first_td_style}>{tick}</td>'
-        f'<td class="nowrap">{_esc(_fmt_date(t.get("violationDate")))}</td>'
-        f"<td>{charge_cell}</td>"
-        f'<td class="num">{_esc(fine_cell)}</td>'
-        f'<td class="num">{_esc(total_cell)}</td>'
-        f'<td class="nowrap">{_status_cell(t)}</td>'
-        f'<td class="nowrap">{_esc(pay_by)}</td>'
+        f'<td class="nowrap" data-label="Ticket #"{first_td_style}>{tick}</td>'
+        f'<td class="nowrap" data-label="Violation">{_esc(_fmt_date(t.get("violationDate")))}</td>'
+        f'<td data-label="Charge">{charge_cell}</td>'
+        f'<td class="num" data-label="Fine">{_esc(fine_cell)}</td>'
+        f'<td class="num" data-label="Total">{_esc(total_cell)}</td>'
+        f'<td class="nowrap" data-label="Status">{_status_cell(t)}</td>'
+        f'<td class="nowrap" data-label="To Collections">{_esc(pay_by)}</td>'
         f"</tr>"
     )
 
@@ -162,9 +181,9 @@ def _total_row_html(tickets):
     return (
         '<tr class="total">'
         '<td></td><td></td>'
-        f'<td>Total ({len(tickets)})</td>'
-        f'<td class="num">{_esc(_money(fine_sum) + approx)}</td>'
-        f'<td class="num">{_esc(_money(grand) + approx)}</td>'
+        f'<td data-label="Total ({len(tickets)} open)">Total ({len(tickets)})</td>'
+        f'<td class="num" data-label="Fines">{_esc(_money(fine_sum) + approx)}</td>'
+        f'<td class="num" data-label="Grand total">{_esc(_money(grand) + approx)}</td>'
         '<td></td><td></td></tr>'
     )
 
@@ -190,7 +209,7 @@ def _plate_section_html(plate, tickets, new_set, esc_set):
         )
         colgroup = "<colgroup>" + "".join(f'<col style="width:{w}">' for w in _COL_WIDTHS) + "</colgroup>"
         body = (
-            "<table>" + colgroup + "<thead><tr>" + header + "</tr></thead><tbody>"
+            '<table class="tickets">' + colgroup + "<thead><tr>" + header + "</tr></thead><tbody>"
             + rows + _total_row_html(tickets) + "</tbody></table>"
         )
     search_url = seattle.citations_search_url(plate)
