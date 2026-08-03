@@ -25,6 +25,7 @@ done
 REPO_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 PY="$REPO_DIR/.venv/bin/python3"
 TRACK="$REPO_DIR/track.py"
+GIT="$(command -v git || echo /usr/bin/git)"       # absolute path (cron's PATH is minimal)
 
 # --- defaults --------------------------------------------------------------
 PLATES=()
@@ -83,6 +84,13 @@ if [ "${#EMAILS[@]}" -gt 0 ]; then
 fi
 LOG="$STATE_DIR/run.log"
 
+# Cron runs current code: pull latest before the tracker. --ff-only means a
+# pull can only fast-forward — if the checkout ever diverges it fails cleanly
+# instead of making a merge commit. It's joined with ';' (not '&&') so a pull
+# hiccup (network blip, divergence) never blocks the weekly report: the tracker
+# still runs on the last-known-good checkout. Both halves share one log via {}.
+CRON_CMD="{ cd $REPO_DIR && $GIT pull --ff-only; $CMD; } >> $LOG 2>&1"
+
 # --- 4. prime the OCR cache so the first cron run is fast ------------------
 mkdir -p "$STATE_DIR"
 echo "[install] priming OCR cache (first run downloads + OCRs each PDF once) ..."
@@ -99,7 +107,7 @@ if [ "$INSTALL_CRON" -eq 1 ]; then
   crontab -l 2>/dev/null | grep -vF "$MARKER" | grep -vF "$TRACK" > "$TMP" || true
   {
     echo "$MARKER"
-    echo "$SCHEDULE $CMD >> $LOG 2>&1  $MARKER"
+    echo "$SCHEDULE $CRON_CMD  $MARKER"
   } >> "$TMP"
   crontab "$TMP"
   rm -f "$TMP"
